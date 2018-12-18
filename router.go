@@ -6,11 +6,15 @@
 package routing
 
 import (
+	"fmt"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/astaxie/beego/logs"
 	"github.com/valyala/fasthttp"
 )
 
@@ -72,9 +76,42 @@ func (r *Router) HandleRequest(ctx *fasthttp.RequestCtx) {
 	c := r.pool.Get().(*Context)
 	c.init(ctx)
 	c.handlers, c.pnames = r.find(string(ctx.Method()), string(ctx.Path()), c.pvalues)
+
+	var findRouter bool = true
+	start := time.Now()
 	if err := c.Next(); err != nil {
+		if err.Error() == "Not Found" {
+			findRouter = false
+		} else {
+			logs.Error(err)
+		}
 		r.handleError(c, err)
 	}
+
+	timeDur := time.Since(start)
+	statusCode := c.Response.StatusCode()
+	method := c.Method()
+
+	if true {
+		var devInfo string
+		iswin := (runtime.GOOS == "windows")
+		statusColor := logs.ColorByStatus(iswin, statusCode)
+		methodColor := logs.ColorByMethod(iswin, "GET")
+		resetColor := logs.ColorByMethod(iswin, "")
+		if findRouter {
+			devInfo = fmt.Sprintf("|%15s|%s %3d %s|%13s|%8s|%s %-7s %s %-3s", c.RemoteIP(), statusColor, statusCode, resetColor,
+				timeDur.String(), "match", methodColor, method, resetColor, c.URI().Path())
+		} else {
+			devInfo = fmt.Sprintf("|%15s|%s %3d %s|%13s|%8s|%s %-7s %s %-3s", c.RemoteIP(), statusColor, statusCode, resetColor,
+				timeDur.String(), "nomatch", methodColor, method, resetColor, c.URI().Path())
+		}
+		if iswin {
+			logs.W32Debug(devInfo)
+		} else {
+			logs.Debug(devInfo)
+		}
+	}
+
 	r.pool.Put(c)
 }
 
